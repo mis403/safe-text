@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.models.inference import SensitiveWordInference
 from src.models.trainer import SensitiveWordTrainer
 from src.data import DataProcessor
+from src.utils.model_finder import find_latest_model, find_all_models, get_model_info
 from config.settings import config
 
 # 配置日志
@@ -28,23 +29,21 @@ app = Flask(__name__)
 # 全局推理引擎
 inference_engine: Optional[SensitiveWordInference] = None
 
+# 模型查找功能已移至 src.utils.model_finder 模块
+
 def init_inference_engine():
     """初始化推理引擎"""
     global inference_engine
     if inference_engine is None:
         try:
-            # 检查模型是否存在
-            model_path = Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter"
-            ultimate_model_path = Path("ultimate_xlm_roberta_model")
-            
-            if ultimate_model_path.exists():
-                model_path = str(ultimate_model_path)
-            elif not model_path.exists():
+            # 查找最新模型
+            model_path = find_latest_model()
+            if not model_path:
                 logger.warning("训练好的模型不存在，请先训练模型")
                 return False
             
             inference_engine = SensitiveWordInference(
-                model_path=str(model_path),
+                model_path=model_path,
                 use_rules=False,  # 只使用AI模型
                 use_ai=True
             )
@@ -231,10 +230,13 @@ def train_model():
         
         logger.info("模型训练完成")
         
-        # 重新初始化推理引擎
+        # 重新初始化推理引擎以使用最新训练的模型
         global inference_engine
         inference_engine = None
-        init_inference_engine()
+        if init_inference_engine():
+            logger.info("推理引擎已更新为最新训练的模型")
+        else:
+            logger.warning("推理引擎更新失败")
         
         return jsonify({
             "message": "模型训练完成",
@@ -256,21 +258,32 @@ def train_model():
 @app.route('/model/status', methods=['GET'])
 def model_status():
     """获取模型状态"""
-    model_path = Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter"
-    ultimate_model_path = Path("ultimate_xlm_roberta_model")
+    current_model_path = find_latest_model()
+    
+    # 检查所有可能的模型路径
+    model_paths = {
+        "current_model": {
+            "path": current_model_path or "未找到",
+            "exists": current_model_path is not None,
+            "is_active": True
+        },
+        "checkpoint_model": {
+            "path": "ultimate_xlm_roberta_model/checkpoint-100",
+            "exists": Path("ultimate_xlm_roberta_model/checkpoint-100").exists()
+        },
+        "ultimate_model": {
+            "path": "ultimate_xlm_roberta_model",
+            "exists": Path("ultimate_xlm_roberta_model").exists()
+        },
+        "default_model": {
+            "path": str(Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter"),
+            "exists": (Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter").exists()
+        }
+    }
     
     status = {
         "inference_engine_loaded": inference_engine is not None,
-        "model_paths": {
-            "default_model": {
-                "path": str(model_path),
-                "exists": model_path.exists()
-            },
-            "ultimate_model": {
-                "path": str(ultimate_model_path),
-                "exists": ultimate_model_path.exists()
-            }
-        },
+        "model_paths": model_paths,
         "training_data": {
             "train_file": {
                 "path": config.data_config["train_file"],

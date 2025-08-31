@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.models.inference import SensitiveWordInference
 from src.utils.logger import setup_logger
+from src.utils.model_finder import find_latest_model, get_model_info
 from config.settings import config
 
 logger = setup_logger(__name__)
@@ -29,29 +30,21 @@ class InteractiveModelTester:
         """自动查找最新的训练模型"""
         print("🔍 正在查找最新训练的模型...")
         
-        # 可能的模型路径列表（按优先级排序）
-        possible_paths = [
-            Path("ultimate_xlm_roberta_model"),  # 最新训练的模型
-            Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter",  # 默认模型路径
-            Path("models") / "xlm_roberta_sensitive_filter",  # 备用路径
-        ]
-        
-        # 查找存在的模型路径
-        for path in possible_paths:
-            if path.exists() and (path / "config.json").exists():
-                # 检查模型文件的修改时间
-                config_file = path / "config.json"
-                model_time = datetime.fromtimestamp(config_file.stat().st_mtime)
-                
-                print(f"✅ 找到模型: {path}")
-                print(f"   训练时间: {model_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                self.model_path = str(path)
-                return True
-        
-        print("❌ 未找到训练好的模型")
-        print("   请先运行训练脚本: python train.py")
-        return False
+        model_path = find_latest_model()
+        if model_path:
+            # 获取模型详细信息
+            model_info = get_model_info(model_path)
+            
+            print(f"✅ 找到模型: {model_path}")
+            print(f"   训练时间: {model_info.get('modified_time_str', '未知')}")
+            print(f"   模型类型: {model_info.get('model_type', '未知')}")
+            
+            self.model_path = model_path
+            return True
+        else:
+            print("❌ 未找到训练好的模型")
+            print("   请先运行训练脚本: python3 train.py")
+            return False
     
     def load_model(self):
         """加载模型"""
