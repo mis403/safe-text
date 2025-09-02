@@ -21,7 +21,7 @@ from transformers import (
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from config.settings import config
+from config.settings import config as old_config
 from src.data import SensitiveTextDataset, DataProcessor
 from src.utils.logger import setup_logger
 
@@ -30,16 +30,23 @@ logger = setup_logger(__name__)
 class SensitiveWordTrainer:
     """Trainer for sensitive word classification models."""
     
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         """Initialize trainer.
         
         Args:
             model_name: Pretrained model name or path
+            config: Training configuration dictionary
         """
-        self.model_name = model_name or config.model_config["name"]
+        # 使用新配置或回退到旧配置
+        if config:
+            self.model_config = config['model']
+            self.training_config = config['training']
+        else:
+            self.model_config = old_config.model_config
+            self.training_config = old_config.training_config
+            
+        self.model_name = model_name or self.model_config["name"]
         self.device = self._get_device()
-        self.model_config = config.model_config
-        self.training_config = config.training_config
         
         self.tokenizer = None
         self.model = None
@@ -168,45 +175,78 @@ class SensitiveWordTrainer:
         # Create output directory
         if not output_dir:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = str(Path(config.paths["output_dir"]) / f"training_{timestamp}")
+            output_dir = str(Path("outputs") / f"training_{timestamp}")
         
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
         # Adjust batch size based on device
-        batch_size = self.training_config["batch_size"]
+        batch_size = int(self.training_config["batch_size"])
         if self.device == "cpu":
             batch_size = min(batch_size, 4)
         
-        # Training arguments
+        # Training arguments with enhanced overfitting prevention
         training_args = TrainingArguments(
             output_dir=str(output_path),
-            num_train_epochs=self.training_config["num_epochs"],
+            num_train_epochs=int(self.training_config["num_epochs"]),
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
-            warmup_steps=self.training_config["warmup_steps"],
-            weight_decay=self.training_config["weight_decay"],
-            learning_rate=self.training_config["learning_rate"],
+            # 学习率和warmup配置
+            learning_rate=float(self.training_config["learning_rate"]),
+            warmup_steps=int(self.training_config.get("warmup_steps", 50)),
+            warmup_ratio=float(self.training_config.get("warmup_ratio", 0.1)),
+            # 正则化参数
+            weight_decay=float(self.training_config["weight_decay"]),
+            max_grad_norm=float(self.training_config.get("max_grad_norm", 1.0)),
+            label_smoothing_factor=float(self.training_config.get("label_smoothing_factor", 0.0)),
+            # 学习率调度
+            lr_scheduler_type=self.training_config.get("lr_scheduler_type", "linear"),
+            # 梯度配置
+            gradient_accumulation_steps=int(self.training_config.get("gradient_accumulation_steps", 1)),
+            gradient_checkpointing=bool(self.training_config.get("gradient_checkpointing", False)),
+            # 日志和评估
             logging_dir=str(output_path / "logs"),
-            logging_steps=self.training_config["logging_steps"],
+            logging_steps=int(self.training_config["logging_steps"]),
             eval_strategy=self.training_config["eval_strategy"],
-            eval_steps=self.training_config["eval_steps"],
+            eval_steps=int(self.training_config["eval_steps"]),
+            # 保存策略
             save_strategy=self.training_config["save_strategy"],
-            save_steps=self.training_config["save_steps"],
-            load_best_model_at_end=self.training_config["load_best_model_at_end"],
+            save_steps=int(self.training_config["save_steps"]),
+            save_total_limit=3,  # 只保留最近3个检查点
+            # 模型选择
+            load_best_model_at_end=bool(self.training_config["load_best_model_at_end"]),
             metric_for_best_model=self.training_config["metric_for_best_model"],
-            greater_is_better=self.training_config["greater_is_better"],
+            greater_is_better=bool(self.training_config["greater_is_better"]),
+            # 数据加载配置
+            dataloader_num_workers=0 if self.device == "mps" else 2,
+            dataloader_pin_memory=bool(self.training_config.get("dataloader_pin_memory", True)),
+            dataloader_drop_last=bool(self.training_config.get("dataloader_drop_last", True)),
+            # 其他配置
+            remove_unused_columns=bool(self.training_config.get("remove_unused_columns", True)),
+            seed=int(self.training_config.get("seed", 42)),
+            data_seed=int(self.training_config.get("seed", 42)),
             report_to=None,
             push_to_hub=False,
-            dataloader_num_workers=0 if self.device == "mps" else 2,
             fp16=False,  # Disable for Apple Silicon compatibility
-            remove_unused_columns=True,
+            # 预测和采样配置
+            prediction_loss_only=False,
+            include_inputs_for_metrics=False,
         )
         
         # Data collator
         data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
         
-        # Create trainer
+        # Create trainer with early stopping to prevent overfitting
+        early_stopping_patience = self.training_config.get("early_stopping_patience", 3)
+        early_stopping_threshold = self.training_config.get("early_stopping_threshold", 0.001)
+        
+        callbacks = [
+            EarlyStoppingCallback(
+                early_stopping_patience=early_stopping_patience,
+                early_stopping_threshold=early_stopping_threshold
+            )
+        ]
+        
         self.trainer = Trainer(
             model=self.model,
             args=training_args,
@@ -215,7 +255,7 @@ class SensitiveWordTrainer:
             processing_class=self.tokenizer,
             data_collator=data_collator,
             compute_metrics=self._compute_metrics,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
+            callbacks=callbacks
         )
         
         logger.info(f"Training setup completed. Output directory: {output_path}")
@@ -386,7 +426,7 @@ class SensitiveWordTrainer:
             raise RuntimeError("Model and tokenizer not loaded.")
         
         if not output_path:
-            output_path = str(config.paths["models_dir"] / "xlm_roberta_sensitive_filter")
+            output_path = str(Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter")
         
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)

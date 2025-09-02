@@ -21,7 +21,9 @@
 safe-text/
 ├── README.md                    # 项目说明
 ├── api_server.py               # API服务器（主要入口）
-├── train.py                    # 训练脚本
+├── train.py                    # 初始训练脚本
+├── incremental_train.py        # 增量训练脚本
+├── interactive_test.py         # 交互式测试
 ├── requirements.txt            # 依赖包
 ├── config/
 │   └── settings.py             # 配置管理
@@ -33,8 +35,14 @@ safe-text/
 │   │   ├── preprocessor.py     # 数据预处理
 │   │   └── dataset.py          # PyTorch数据集
 │   └── utils/                  # 工具函数
-│       └── logger.py           # 日志工具
+│       ├── logger.py           # 日志工具
+│       └── model_finder.py     # 模型查找工具
 ├── data/                       # 数据目录
+│   ├── formatted_sensitive_data.csv  # 主训练数据
+│   ├── additional_training_data.csv  # 增量训练示例
+│   ├── train.csv               # 训练集
+│   ├── val.csv                 # 验证集
+│   └── test.csv                # 测试集
 ├── models/                     # 模型存储
 ├── outputs/                    # 输出文件
 └── logs/                       # 日志文件
@@ -68,12 +76,38 @@ text,label
 
 ### 3. 训练模型
 
+#### 初始训练
+
 ```bash
-# 使用自定义数据训练
+# 使用自定义数据训练（完整模式，包含防过拟合监控）
 python train.py --input-data your_training_data.csv
 
 # 使用默认数据训练（如果已有data/train.csv等文件）
 python train.py
+
+# 简化模式（不显示详细配置）
+python train.py --simple-mode
+
+# 清理旧模型重新训练
+python train.py --clear-models
+
+# 跳过过拟合监控（快速训练）
+python train.py --skip-monitoring
+```
+
+#### 增量训练（追加训练）
+
+当你需要在已有模型基础上添加新的训练数据时：
+
+```bash
+# 基本增量训练（自动找到最新模型）
+python incremental_train.py --additional-data data/new_training_data.csv
+
+# 指定基础模型进行增量训练
+python incremental_train.py --additional-data data/new_training_data.csv --base-model models/xlm_roberta_sensitive_filter
+
+# 自定义学习率和训练轮数
+python incremental_train.py --additional-data data/new_training_data.csv --learning-rate 5e-6 --epochs 1
 ```
 
 ### 4. 启动API服务
@@ -84,14 +118,14 @@ python api_server.py
 
 服务启动后，访问 http://localhost:8080
 
-### 5. 交互式测试模型
+### 5. 查看训练历史和测试模型
 
 ```bash
-# 完整交互式测试（推荐）
-python interactive_test.py
+# 查看所有训练历史
+python show_training_history.py
 
-# 快速测试模式
-python quick_test.py
+# 交互式测试当前模型
+python interactive_test.py
 ```
 
 ## 📡 API接口
@@ -150,12 +184,12 @@ Content-Type: application/json
 
 ## 🧪 交互式测试
 
-### 完整交互式测试 (`interactive_test.py`)
+### 交互式测试 (`interactive_test.py`)
 
 这是推荐的测试方式，提供丰富的功能：
 
 ```bash
-python interactive_test.py
+python3 interactive_test.py
 ```
 
 **功能特性：**
@@ -172,22 +206,9 @@ python interactive_test.py
 3. 输入文本或选择测试用例
 4. 查看详细的检测结果和统计信息
 
-### 快速测试 (`quick_test.py`)
-
-简化版本，适合快速验证：
-
-```bash
-python quick_test.py
-```
-
-**特点：**
-- ⚡ **快速启动**: 最小化的界面，快速加载
-- 🎯 **专注测试**: 只提供基本的文本检测功能
-- 📝 **简洁输出**: 显示核心结果信息
-
 ### 模型自动检测逻辑
 
-两个测试脚本都会按以下优先级自动查找模型：
+测试脚本会按以下优先级自动查找模型：
 
 1. `ultimate_xlm_roberta_model/` - 最新训练的模型
 2. `models/xlm_roberta_sensitive_filter/` - 默认模型路径
@@ -197,6 +218,214 @@ python quick_test.py
 - 使用的设备（CPU/GPU/MPS）
 - 模型配置参数
 - 置信度阈值设置
+
+## 🔄 增量训练详细指南
+
+### 什么是增量训练？
+
+增量训练（Incremental Training）是在已有训练好的模型基础上，添加新的训练数据进行进一步训练的过程。这种方式可以：
+
+- 📈 **提升模型性能**: 在特定领域或新数据上提高准确率
+- ⚡ **节省训练时间**: 无需从头开始训练
+- 💾 **保留原有知识**: 在新数据基础上保持原有模型的能力
+- 🎯 **针对性优化**: 针对特定类型的敏感内容进行优化
+
+### 📋 增量训练完整流程
+
+#### 步骤1: 准备新的训练数据
+
+创建CSV格式的新训练数据文件：
+
+```csv
+text,label
+"新的敏感内容示例",1
+"新的正常内容示例",0
+"更多训练数据...",0
+```
+
+**数据准备建议：**
+- 确保数据质量高，标注准确
+- 保持敏感(1)和正常(0)数据的平衡
+- 每个类别至少准备50-100条数据
+- 避免与原有数据重复
+
+#### 步骤2: 选择合适的训练参数
+
+**学习率设置：**
+```bash
+# 推荐学习率范围
+--learning-rate 1e-5    # 标准增量训练学习率
+--learning-rate 5e-6    # 更保守的学习率，适合微调
+--learning-rate 2e-5    # 较大的学习率，适合大量新数据
+```
+
+**训练轮数设置：**
+```bash
+--epochs 1    # 少量新数据，避免过拟合
+--epochs 2    # 标准设置，适合大多数情况
+--epochs 3    # 大量新数据或需要显著改进时
+```
+
+#### 步骤3: 执行增量训练
+
+**基本用法：**
+```bash
+# 最简单的增量训练
+python incremental_train.py --additional-data data/new_data.csv
+```
+
+**完整参数示例：**
+```bash
+# 完整的增量训练命令
+python incremental_train.py \
+  --additional-data data/new_sensitive_words.csv \
+  --base-model models/xlm_roberta_sensitive_filter \
+  --learning-rate 5e-6 \
+  --epochs 2 \
+  --output-dir outputs/incremental_training_$(date +%Y%m%d_%H%M%S)
+```
+
+#### 步骤4: 验证训练结果
+
+训练完成后，系统会显示：
+```
+✅ 增量训练完成!
+📁 模型保存到: models/xlm_roberta_sensitive_filter
+📊 训练日志: outputs/training_20240115_143025
+🎯 测试准确率: 0.9845
+📈 测试F1分数: 0.9843
+```
+
+### 🔧 增量训练参数详解
+
+| 参数 | 说明 | 默认值 | 推荐设置 |
+|------|------|--------|----------|
+| `--additional-data` | 新增训练数据文件路径 | 必需 | - |
+| `--base-model` | 基础模型路径 | 自动检测最新 | 使用默认 |
+| `--original-data` | 原始训练数据路径 | `data/formatted_sensitive_data.csv` | 保持默认 |
+| `--learning-rate` | 学习率 | `1e-5` | `5e-6` (保守) 或 `1e-5` (标准) |
+| `--epochs` | 训练轮数 | `2` | `1-2` 轮 |
+| `--output-dir` | 输出目录 | 自动生成 | 使用默认 |
+
+### ⚠️ 增量训练注意事项
+
+**学习率选择原则：**
+- 🔸 **1e-5**: 标准增量训练学习率，适合大多数情况
+- 🔸 **5e-6**: 更保守的学习率，适合微调或少量数据
+- 🔸 **2e-5**: 较大学习率，适合大量新数据或需要显著改进
+- ❌ **避免使用过大学习率** (>5e-5)，可能导致灾难性遗忘
+
+**训练轮数建议：**
+- 🔸 **1轮**: 少量新数据 (<100条)
+- 🔸 **2轮**: 标准设置，适合大多数情况
+- 🔸 **3轮**: 大量新数据 (>500条) 或需要显著改进
+- ❌ **避免过多轮数**，可能导致过拟合
+
+**数据质量要求：**
+- ✅ 确保新数据标注准确
+- ✅ 保持类别平衡 (敏感:正常 ≈ 1:1)
+- ✅ 避免与原有数据重复
+- ✅ 每个类别至少50条数据
+
+### 📊 增量训练效果监控
+
+**训练过程监控：**
+```bash
+# 训练过程中会显示实时指标
+{'loss': 0.1658, 'learning_rate': 5e-06, 'epoch': 0.5}
+{'eval_loss': 0.1290, 'eval_accuracy': 0.9658, 'eval_f1': 0.9658}
+```
+
+**最终评估指标：**
+- **准确率 (Accuracy)**: 总体预测正确率
+- **F1分数**: 综合考虑精确率和召回率
+- **精确率 (Precision)**: 预测为敏感的内容中真正敏感的比例
+- **召回率 (Recall)**: 真正敏感内容被正确识别的比例
+
+### 🚀 增量训练最佳实践
+
+1. **小步快跑**: 每次添加少量高质量数据，多次增量训练
+2. **监控性能**: 每次训练后在测试集上验证效果
+3. **备份模型**: 训练前备份当前最佳模型
+4. **数据版本控制**: 记录每次增量训练使用的数据
+5. **A/B测试**: 对比增量训练前后的模型效果
+
+### 💡 常见问题解决
+
+**Q: 增量训练后性能下降怎么办？**
+A: 降低学习率 (如5e-6) 或减少训练轮数 (如1轮)
+
+**Q: 新数据量很少怎么办？**
+A: 使用更小的学习率 (5e-6) 和更少轮数 (1轮)
+
+**Q: 想要快速适应新领域怎么办？**
+A: 可以适当提高学习率 (2e-5) 但要密切监控过拟合
+
+**Q: 如何避免灾难性遗忘？**
+A: 使用较小学习率，确保新数据质量，避免过度训练
+
+### 🎯 增量训练实际示例
+
+假设你想要为模型添加一些网络安全相关的敏感词检测能力：
+
+#### 1. 准备新数据
+```bash
+# 查看示例数据
+head -5 data/additional_training_data.csv
+```
+```csv
+text,label
+"网络诈骗新手法曝光",1
+"今天天气很好",0
+"传播虚假疫情信息",1
+"学习编程很有趣",0
+```
+
+#### 2. 执行增量训练
+```bash
+# 使用保守的学习率进行增量训练
+python3 incremental_train.py \
+  --additional-data data/additional_training_data.csv \
+  --learning-rate 5e-6 \
+  --epochs 2
+```
+
+#### 3. 训练过程输出
+```
+🚀 开始增量训练...
+📊 合并训练数据: data/formatted_sensitive_data.csv + data/additional_training_data.csv
+   原始数据: 7596 条
+   新增数据: 20 条
+   合并后数据: 7616 条
+   去重后数据: 7616 条
+
+🤖 使用基础模型: models/xlm_roberta_sensitive_filter
+⚙️ 增量训练配置: 学习率=5e-06, 轮数=2
+
+📈 训练进度:
+{'loss': 0.0892, 'learning_rate': 5e-06, 'epoch': 1.0}
+{'eval_loss': 0.0654, 'eval_accuracy': 0.9789, 'eval_f1': 0.9789}
+
+✅ 增量训练完成!
+📁 模型保存到: models/xlm_roberta_sensitive_filter
+🎯 测试准确率: 0.9789
+📈 测试F1分数: 0.9789
+```
+
+#### 4. 验证训练效果
+```bash
+# 使用交互式测试验证新模型
+python3 interactive_test.py
+```
+
+测试新添加的敏感词：
+```
+请输入文本: 网络诈骗新手法曝光
+✅ 检测结果: 敏感内容 (置信度: 0.9234)
+
+请输入文本: 今天天气很好
+✅ 检测结果: 正常内容 (置信度: 0.8876)
+```
 
 ## 💡 使用示例
 

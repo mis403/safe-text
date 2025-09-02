@@ -17,26 +17,53 @@ def find_latest_model() -> Optional[str]:
     Returns:
         最新模型的路径，如果未找到则返回None
     """
-    # 可能的模型路径列表（按优先级排序）
+    valid_models = []
+    
+    # 1. 查找outputs目录下的训练结果 (优先级最高)
+    outputs_dir = Path("outputs")
+    if outputs_dir.exists():
+        training_dirs = sorted(outputs_dir.glob("training_*"))
+        for training_dir in training_dirs:
+            # 检查final_model目录
+            final_model = training_dir / "final_model"
+            if final_model.exists() and (final_model / "config.json").exists():
+                config_file = final_model / "config.json"
+                model_time = datetime.fromtimestamp(config_file.stat().st_mtime)
+                valid_models.append((final_model, model_time, f"训练结果: {training_dir.name}"))
+            
+            # 检查最新的检查点
+            checkpoints = sorted(training_dir.glob("checkpoint-*"))
+            if checkpoints:
+                latest_checkpoint = checkpoints[-1]
+                if (latest_checkpoint / "config.json").exists():
+                    config_file = latest_checkpoint / "config.json"
+                    model_time = datetime.fromtimestamp(config_file.stat().st_mtime)
+                    valid_models.append((latest_checkpoint, model_time, f"检查点: {training_dir.name}/{latest_checkpoint.name}"))
+    
+    # 2. 查找models目录下的当前模型 (备用)
     possible_paths = [
-        Path("ultimate_xlm_roberta_model/checkpoint-100"),  # 最新训练的模型检查点
-        Path("ultimate_xlm_roberta_model"),  # 最新训练的模型根目录
-        Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter",  # 默认模型路径
-        Path("models") / "xlm_roberta_sensitive_filter",  # 备用路径
+        (Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter", "当前使用模型"),
+        (Path("models") / "xlm_roberta_sensitive_filter", "备用模型路径"),
     ]
     
-    # 查找存在的模型路径
-    for path in possible_paths:
+    for path, desc in possible_paths:
         if path.exists() and (path / "config.json").exists():
-            # 检查模型文件的修改时间
             config_file = path / "config.json"
             model_time = datetime.fromtimestamp(config_file.stat().st_mtime)
-            
-            logger.info(f"找到模型: {path}, 训练时间: {model_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            return str(path)
+            valid_models.append((path, model_time, desc))
     
-    logger.warning("未找到训练好的模型")
-    return None
+    if not valid_models:
+        logger.warning("未找到训练好的模型")
+        return None
+    
+    # 按修改时间降序排序，返回最新的模型
+    valid_models.sort(key=lambda x: x[1], reverse=True)
+    latest_path, latest_time, desc = valid_models[0]
+    
+    logger.info(f"找到最新模型: {latest_path}")
+    logger.info(f"  类型: {desc}")
+    logger.info(f"  训练时间: {latest_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    return str(latest_path)
 
 def find_all_models() -> List[Tuple[str, bool, Optional[datetime]]]:
     """查找所有可能的模型路径
@@ -45,10 +72,10 @@ def find_all_models() -> List[Tuple[str, bool, Optional[datetime]]]:
         模型路径列表，每个元素包含 (路径, 是否存在, 修改时间)
     """
     possible_paths = [
-        ("ultimate_xlm_roberta_model/checkpoint-100", "最新检查点模型"),
-        ("ultimate_xlm_roberta_model", "最新根目录模型"),
         (str(Path(config.paths["models_dir"]) / "xlm_roberta_sensitive_filter"), "默认模型"),
         ("models/xlm_roberta_sensitive_filter", "备用模型"),
+        ("ultimate_xlm_roberta_model/checkpoint-100", "旧检查点模型"),
+        ("ultimate_xlm_roberta_model", "旧根目录模型"),
     ]
     
     results = []
