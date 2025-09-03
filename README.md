@@ -80,7 +80,15 @@ text,label
 
 ```bash
 # 使用自定义数据训练（完整模式，包含防过拟合监控）
-python train.py --input-data your_training_data.csv
+python3 train.py --input-data data/data.csv --deterministic --simple-mode
+
+--deterministic
+作用: 启用完全确定性训练
+含义: 设置所有随机种子，确保训练结果可重现
+ --simple-mode
+作用: 简化输出模式
+含义: 减少详细的配置信息显示，只显示关键信息
+好处: 输出更简洁，专注于训练过程
 
 # 使用默认数据训练（如果已有data/train.csv等文件）
 python train.py
@@ -483,6 +491,15 @@ $ python interactive_test.py
      敏感内容: 0.1766
 --------------------------------------------------
 ```
+
+指定版本模型进行交互型测试
+python3 interactive_test.py
+outputs/
+training_20250902_153103/
+final_model
+
+
+
 
 ### Python客户端示例
 

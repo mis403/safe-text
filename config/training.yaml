@@ -7,80 +7,58 @@ model:
   max_length: 512
   num_labels: 2
 
-# 训练参数 - 防过拟合优化版本
+# 训练参数 - 优化调整版
 training:
   # 基础参数
-  batch_size: 8                    # 批次大小
-  learning_rate: 1e-5              # 学习率
-  num_epochs: 3                    # 训练轮数
+  batch_size: 8
+  learning_rate: 0.00002          # 稍微降低学习率，寻求更稳定的收敛 (2e-5)
+  num_epochs: 3
   
-  # 防过拟合参数
-  weight_decay: 0.1                # 权重衰减 (L2正则化)
-  max_grad_norm: 1.0               # 梯度裁剪
-  label_smoothing_factor: 0.1      # 标签平滑
+  # 防过拟合参数 (保持不变，已经很好了)
+  weight_decay: 0.1
+  max_grad_norm: 1.0
+  label_smoothing_factor: 0.1
   
-  # 早停配置
-  early_stopping_patience: 2       # 早停耐心值
-  early_stopping_threshold: 0.0005 # 早停阈值
+  # 早停配置 - 放宽条件
+  early_stopping_patience: 5       # 增加耐心，从 2 -> 5
+  early_stopping_threshold: 0.001    # 降低敏感度，从 0.005 -> 0.001
   
   # 学习率调度
-  warmup_steps: 100                # 预热步数
-  warmup_ratio: 0.1                # 预热比例
-  lr_scheduler_type: "cosine_with_restarts"  # 学习率调度器
+  warmup_steps: 100
+  warmup_ratio: 0.1                # warmup_steps 和 warmup_ratio 通常只用一个，HuggingFace Trainer 优先使用 ratio
+  lr_scheduler_type: "linear"      # 改为更平滑的线性衰减
   
-  # 梯度和内存优化
-  gradient_accumulation_steps: 2   # 梯度累积步数
-  gradient_checkpointing: true     # 梯度检查点
+  # 梯度和内存优化 (保持不变)
+  gradient_accumulation_steps: 2
+  gradient_checkpointing: true
   
-  # 评估和保存
-  eval_strategy: "steps"           # 评估策略
-  eval_steps: 50                   # 评估间隔
-  save_strategy: "steps"           # 保存策略
-  save_steps: 100                  # 保存间隔
-  logging_steps: 25                # 日志间隔
+  # 评估和保存 - 降低频率
+  eval_strategy: "steps"
+  eval_steps: 200                  # 显著增加评估间隔，从 50 -> 200 (请根据你的数据量调整)
+  save_strategy: "steps"
+  save_steps: 200                  # 保持与 eval_steps 一致
+  logging_steps: 50                # 日志可以频繁一些，方便观察
   
-  # 模型选择
-  load_best_model_at_end: true     # 加载最佳模型
-  metric_for_best_model: "eval_loss"  # 最佳模型指标
-  greater_is_better: false         # 损失越小越好
+  # 模型选择 (保持不变)
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
   
-  # 数据加载优化
-  dataloader_pin_memory: true      # 固定内存
-  dataloader_drop_last: true       # 丢弃最后批次
-  remove_unused_columns: true      # 移除未使用列
+  # 数据加载优化 (保持不变)
+  dataloader_pin_memory: true
+  dataloader_drop_last: true
+  remove_unused_columns: true
   
-  # 随机种子
-  seed: 42                         # 随机种子
+  # 随机种子 (保持不变)
+  seed: 42
 
-# 数据配置
+# 数据配置 - 方案B：最大化训练数据
 data:
-  train_ratio: 0.7                 # 训练集比例
-  val_ratio: 0.1                   # 验证集比例
-  test_ratio: 0.2                  # 测试集比例
+  train_ratio: 0.9                 # 训练集比例 (90% - 最大化训练数据)
+  val_ratio: 0.05                  # 验证集比例 (5% - 足够验证)
+  test_ratio: 0.05                 # 测试集比例 (5% - 足够测试)
   random_seed: 42                  # 数据分割随机种子
 
 # 快速配置预设 (注释掉不使用的)
 presets:
-  # 取消注释以使用预设配置
-  
-  # conservative:  # 保守训练 (防过拟合)
-  #   learning_rate: 5e-6
-  #   batch_size: 6
-  #   weight_decay: 0.15
-  #   early_stopping_patience: 1
-  #   label_smoothing_factor: 0.15
-  
-  # fast:  # 快速训练
-  #   learning_rate: 2e-5
-  #   batch_size: 12
-  #   num_epochs: 2
-  #   early_stopping_patience: 3
-  #   eval_steps: 100
-  
-  # high_quality:  # 高质量训练
-  #   learning_rate: 8e-6
-  #   batch_size: 4
-  #   num_epochs: 5
-  #   weight_decay: 0.12
-  #   early_stopping_patience: 3
-  #   eval_steps: 25
+ 

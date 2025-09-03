@@ -19,8 +19,35 @@ from src.data import DataProcessor
 from config.settings import config
 from src.utils.logger import setup_logger
 from src.utils.overfitting_detector import OverfittingDetector
+import torch
+import numpy as np
+import random
 
 logger = setup_logger(__name__)
+
+def set_deterministic_training(seed=42):
+    """设置确定性训练环境"""
+    # Python随机种子
+    random.seed(seed)
+    
+    # NumPy随机种子
+    np.random.seed(seed)
+    
+    # PyTorch随机种子
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    
+    # 设置确定性算法（可能影响性能）
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    # 设置环境变量
+    import os
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    logger.info(f"✅ 设置确定性训练环境，种子: {seed}")
 
 def clear_previous_models(keep_cache=True):
     """清理之前的模型文件，但保留缓存"""
@@ -50,7 +77,7 @@ def clear_previous_models(keep_cache=True):
     
     logger.info("✅ 模型清理完成")
 
-def prepare_training_data(input_data=None):
+def prepare_training_data(input_data=None, force_resplit=False):
     """准备和验证训练数据"""
     processor = DataProcessor()
     
@@ -73,10 +100,13 @@ def prepare_training_data(input_data=None):
     val_file = Path("data/val.csv") 
     test_file = Path("data/test.csv")
     
-    # 如果分割文件不存在，尝试从格式化数据分割
-    if not all([train_file.exists(), val_file.exists(), test_file.exists()]):
+    # 如果强制重新分割或分割文件不存在，尝试从格式化数据分割
+    if force_resplit or not all([train_file.exists(), val_file.exists(), test_file.exists()]):
         if formatted_data.exists():
-            logger.info("从格式化数据分割训练数据...")
+            if force_resplit:
+                logger.info("强制重新分割训练数据...")
+            else:
+                logger.info("从格式化数据分割训练数据...")
             processor.process_and_split(
                 str(formatted_data),
                 str(train_file),
@@ -86,6 +116,8 @@ def prepare_training_data(input_data=None):
             logger.info("✅ 数据分割完成")
         else:
             raise FileNotFoundError("未找到训练数据，请提供 --input-data 或确保 data/formatted_sensitive_data.csv 存在")
+    else:
+        logger.info("✅ 使用现有的数据分割文件（确保一致性）")
     
     # 验证数据文件
     for file_path in [train_file, val_file, test_file]:
@@ -149,6 +181,8 @@ def main():
     parser.add_argument('--clear-models', action='store_true', help='清理之前的模型文件')
     parser.add_argument('--skip-monitoring', action='store_true', help='跳过过拟合监控')
     parser.add_argument('--simple-mode', action='store_true', help='简化模式，不显示详细配置')
+    parser.add_argument('--force-resplit', action='store_true', help='强制重新分割数据（可能导致不同结果）')
+    parser.add_argument('--deterministic', action='store_true', help='启用完全确定性训练（可能影响性能）')
     
     args = parser.parse_args()
     
@@ -156,6 +190,11 @@ def main():
         # 加载配置
         config = load_training_config(args.config)
         model_name = args.model_name or config['model']['name']
+        
+        # 设置确定性训练（如果启用）
+        if args.deterministic:
+            training_seed = config['training'].get('seed', 42)
+            set_deterministic_training(training_seed)
         
         if not args.simple_mode:
             print("🚀 开始模型训练 - 防过拟合版本")
@@ -170,7 +209,7 @@ def main():
         
         # 2. 准备训练数据
         logger.info("📊 准备训练数据...")
-        train_file, val_file, test_file = prepare_training_data(args.input_data)
+        train_file, val_file, test_file = prepare_training_data(args.input_data, args.force_resplit)
         
         # 3. 初始化训练器（传入配置）
         logger.info(f"🤖 初始化训练器，模型: {model_name}")

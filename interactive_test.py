@@ -79,7 +79,7 @@ class InteractiveModelTester:
         print(f"模型路径: {self.model_path}")
         print(f"设备: {self.inference_engine.device}")
         print(f"最大长度: {config.model_config['max_length']}")
-        print(f"置信度阈值: {config.inference_config.get('confidence_threshold', 0.5)}")
+        print(f"置信度阈值: 0.5 (默认)")
         print("="*50)
     
     def predict_text(self, text):

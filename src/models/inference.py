@@ -201,14 +201,19 @@ class SensitiveWordInference:
         
         # 只使用AI预测结果
         if ai_result:
-            ai_threshold = config.inference_config.get("confidence_threshold", 0.5)
-            if ai_result['prediction'] == 1 and ai_result['confidence'] >= ai_threshold:
+            ai_threshold = 0.5  # 默认置信度阈值
+            
+            # 获取敏感内容的概率（无论预测类别是什么）
+            probabilities = ai_result.get('probabilities', {})
+            sensitive_prob = probabilities.get('敏感内容', 0.0)
+            
+            if sensitive_prob >= ai_threshold:
                 is_sensitive = True
-                confidence = ai_result['confidence']
+                confidence = sensitive_prob
                 final_decision = 'sensitive'
             else:
                 is_sensitive = False
-                confidence = ai_result['confidence'] if ai_result['prediction'] == 0 else 1 - ai_result['confidence']
+                confidence = 1 - sensitive_prob  # 正常内容的置信度
                 final_decision = 'normal'
         else:
             confidence = 0.5  # Default neutral confidence
@@ -234,7 +239,7 @@ class SensitiveWordInference:
             List of prediction results
         """
         if not batch_size:
-            batch_size = config.inference_config.get("batch_size", 16)
+            batch_size = 16  # 默认批次大小
         
         results = []
         
