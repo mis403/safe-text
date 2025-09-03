@@ -14,7 +14,7 @@ training:
   learning_rate: 0.00002          # 稍微降低学习率，寻求更稳定的收敛 (2e-5)
   num_epochs: 3
   
-  # 防过拟合参数 (保持不变，已经很好了)
+  # 防过拟合参数 
   weight_decay: 0.1
   max_grad_norm: 1.0
   label_smoothing_factor: 0.1
@@ -34,9 +34,9 @@ training:
   
   # 评估和保存 - 降低频率
   eval_strategy: "steps"
-  eval_steps: 150                 
+  eval_steps: 120                 
   save_strategy: "steps"
-  save_steps: 150                  
+  save_steps: 120                  
   logging_steps: 50                # 日志可以频繁一些，方便观察
   
   # 模型选择 (保持不变)
