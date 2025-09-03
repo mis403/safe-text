@@ -20,8 +20,8 @@ training:
   label_smoothing_factor: 0.1
   
   # 早停配置 - 放宽条件
-  early_stopping_patience: 5       # 增加耐心，从 2 -> 5
-  early_stopping_threshold: 0.001    # 降低敏感度，从 0.005 -> 0.001
+  early_stopping_patience: 3       # 有效训练patience
+  early_stopping_threshold: 0.001    # 有效进步阈值，0.001
   
   # 学习率调度
   warmup_steps: 100
@@ -34,9 +34,9 @@ training:
   
   # 评估和保存 - 降低频率
   eval_strategy: "steps"
-  eval_steps: 200                  # 显著增加评估间隔，从 50 -> 200 (请根据你的数据量调整)
+  eval_steps: 150                 
   save_strategy: "steps"
-  save_steps: 200                  # 保持与 eval_steps 一致
+  save_steps: 150                  
   logging_steps: 50                # 日志可以频繁一些，方便观察
   
   # 模型选择 (保持不变)
@@ -52,11 +52,11 @@ training:
   # 随机种子 (保持不变)
   seed: 42
 
-# 数据配置 - 方案B：最大化训练数据
+# 数据配置 - 
 data:
-  train_ratio: 0.9                 # 训练集比例 (90% - 最大化训练数据)
-  val_ratio: 0.05                  # 验证集比例 (5% - 足够验证)
-  test_ratio: 0.05                 # 测试集比例 (5% - 足够测试)
+  train_ratio: 0.7                 # 训练集比例训练数据)
+  val_ratio: 0.15                  # 验证集比例 
+  test_ratio: 0.15                 # 测试集比例 
   random_seed: 42                  # 数据分割随机种子
 
 # 快速配置预设 (注释掉不使用的)

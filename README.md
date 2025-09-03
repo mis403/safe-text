@@ -495,8 +495,7 @@ $ python interactive_test.py
 指定版本模型进行交互型测试
 python3 interactive_test.py
 outputs/
-training_20250902_153103/
-final_model
+training_20250903_151110/checkpoint-1000
 
 
 

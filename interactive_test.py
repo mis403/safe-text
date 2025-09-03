@@ -101,6 +101,7 @@ class InteractiveModelTester:
             return
         
         print(f"\n📝 输入文本: {text}")
+        print(f"📏 文本长度: {len(text)} 字符")
         print("-" * 50)
         
         # 基本结果
@@ -193,6 +194,9 @@ class InteractiveModelTester:
         while True:
             try:
                 text = input("\n请输入文本: ").strip()
+                
+                # 调试：显示原始输入
+                print(f"[调试] 原始输入: '{text}' (长度: {len(text)})")
                 
                 if not text:
                     continue
@@ -318,7 +322,20 @@ class InteractiveModelTester:
 
 def main():
     """主函数"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='交互式敏感词检测测试')
+    parser.add_argument('model_path', nargs='?', help='指定模型路径 (可选)')
+    
+    args = parser.parse_args()
+    
     tester = InteractiveModelTester()
+    
+    # 如果指定了模型路径，直接使用
+    if args.model_path:
+        print(f"🎯 使用指定模型: {args.model_path}")
+        tester.model_path = args.model_path
+    
     tester.run()
 
 if __name__ == "__main__":
