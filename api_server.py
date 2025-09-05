@@ -28,8 +28,11 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# 全局推理引擎
+# 全局推理引擎 (每个工作进程独立实例)
 inference_engine: Optional[SensitiveWordInference] = None
+
+# 进程初始化标记
+_process_initialized = False
 
 # 加载安全配置
 try:
@@ -88,27 +91,39 @@ def authenticate_request():
 # 模型查找功能已移至 src.utils.model_finder 模块
 
 def init_inference_engine():
-    """初始化推理引擎"""
-    global inference_engine
-    if inference_engine is None:
-        try:
-            # 查找最新模型
-            model_path = find_latest_model()
-            if not model_path:
-                logger.warning("训练好的模型不存在，请先训练模型")
-                return False
-            
-            inference_engine = SensitiveWordInference(
-                model_path=model_path,
-                use_rules=False,  # 只使用AI模型
-                use_ai=True
-            )
-            logger.info("推理引擎初始化成功")
-            return True
-        except Exception as e:
-            logger.error(f"推理引擎初始化失败: {e}")
+    """初始化推理引擎 - 支持多进程独立初始化"""
+    global inference_engine, _process_initialized
+    
+    # 防止同一进程重复初始化
+    if _process_initialized and inference_engine is not None:
+        return True
+    
+    try:
+        # 获取当前进程ID
+        import os
+        process_id = os.getpid()
+        logger.info(f"🔍 进程 {process_id}: 查找最新训练的模型...")
+        
+        # 查找最新模型
+        model_path = find_latest_model()
+        if not model_path:
+            logger.warning(f"进程 {process_id}: 训练好的模型不存在，请先训练模型")
             return False
-    return True
+        
+        # 初始化推理引擎
+        logger.info(f"🤖 进程 {process_id}: 加载模型 {model_path}")
+        inference_engine = SensitiveWordInference(
+            model_path=model_path,
+            use_rules=False,  # 只使用AI模型
+            use_ai=True
+        )
+        _process_initialized = True
+        
+        logger.info(f"✅ 进程 {process_id}: 推理引擎初始化成功")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 进程 {process_id}: 推理引擎初始化失败: {e}")
+        return False
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -123,7 +138,8 @@ def health_check():
 @app.route('/predict', methods=['POST'])
 def predict_text():
     """敏感词检测接口"""
-    if not inference_engine:
+    # 确保推理引擎已初始化（多进程安全）
+    if not init_inference_engine():
         return jsonify({
             "error": "模型未加载，请先训练模型或检查模型路径"
         }), 503
@@ -168,7 +184,8 @@ def predict_text():
 @app.route('/predict/batch', methods=['POST'])
 def predict_batch():
     """批量敏感词检测接口"""
-    if not inference_engine:
+    # 确保推理引擎已初始化（多进程安全）
+    if not init_inference_engine():
         return jsonify({
             "error": "模型未加载，请先训练模型"
         }), 503
