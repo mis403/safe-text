@@ -77,9 +77,16 @@ def clear_previous_models(keep_cache=True):
     
     logger.info("✅ 模型清理完成")
 
-def prepare_training_data(input_data=None, force_resplit=False):
-    """准备和验证训练数据"""
-    processor = DataProcessor()
+def prepare_training_data(input_data=None, force_resplit=False, use_random_split=False):
+    """准备和验证训练数据
+    
+    Args:
+        input_data: 输入数据文件路径
+        force_resplit: 是否强制重新分割数据
+        use_random_split: 是否使用随机分割（每次不同的分割结果）
+    """
+    # 根据是否使用随机分割来初始化处理器
+    processor = DataProcessor(use_random_seed=use_random_split)
     
     # 如果提供了输入数据，先处理它
     if input_data:
@@ -87,6 +94,11 @@ def prepare_training_data(input_data=None, force_resplit=False):
             raise FileNotFoundError(f"训练数据文件不存在: {input_data}")
         
         logger.info(f"处理输入数据: {input_data}")
+        if use_random_split:
+            logger.info("🎲 使用随机数据分割 - 每次训练将使用不同的数据分布")
+        else:
+            logger.info("🔒 使用固定数据分割 - 确保可重现性")
+            
         train_file = "data/train.csv"
         val_file = "data/val.csv"
         test_file = "data/test.csv"
@@ -182,6 +194,7 @@ def main():
     parser.add_argument('--skip-monitoring', action='store_true', help='跳过过拟合监控')
     parser.add_argument('--simple-mode', action='store_true', help='简化模式，不显示详细配置')
     parser.add_argument('--force-resplit', action='store_true', help='强制重新分割数据（可能导致不同结果）')
+    parser.add_argument('--random-split', action='store_true', help='使用随机数据分割（每次训练不同的数据分布）')
     parser.add_argument('--deterministic', action='store_true', help='启用完全确定性训练（可能影响性能）')
     
     args = parser.parse_args()
@@ -209,7 +222,11 @@ def main():
         
         # 2. 准备训练数据
         logger.info("📊 准备训练数据...")
-        train_file, val_file, test_file = prepare_training_data(args.input_data, args.force_resplit)
+        train_file, val_file, test_file = prepare_training_data(
+            args.input_data, 
+            args.force_resplit, 
+            args.random_split
+        )
         
         # 3. 初始化训练器（传入配置）
         logger.info(f"🤖 初始化训练器，模型: {model_name}")

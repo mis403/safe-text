@@ -4,6 +4,7 @@ Data preprocessing utilities for sensitive word filtering.
 
 import pandas as pd
 import numpy as np
+import time
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict, Any
 from sklearn.model_selection import train_test_split
@@ -16,10 +17,16 @@ logger = setup_logger(__name__)
 class DataProcessor:
     """Data preprocessing and management for sensitive word filtering."""
     
-    def __init__(self):
-        """Initialize data processor."""
+    def __init__(self, use_random_seed=False):
+        """Initialize data processor.
+        
+        Args:
+            use_random_seed: If True, use random seed for each split; 
+                           If False, use fixed seed from config
+        """
         self.data_config = config.data_config
-        self.random_seed = self.data_config["random_seed"]
+        self.use_random_seed = use_random_seed
+        self.fixed_seed = self.data_config["random_seed"]
     
     def load_data(self, file_path: str) -> pd.DataFrame:
         """Load data from CSV file.
@@ -132,13 +139,29 @@ class DataProcessor:
         
         return stats
     
+    def _get_random_seed(self) -> int:
+        """Get random seed based on configuration.
+        
+        Returns:
+            Random seed value
+        """
+        if self.use_random_seed:
+            # Generate truly random seed based on current time
+            seed = int(time.time() * 1000000) % 2147483647  # Keep within int32 range
+            logger.info(f"Using random seed: {seed}")
+            return seed
+        else:
+            logger.info(f"Using fixed seed: {self.fixed_seed}")
+            return self.fixed_seed
+    
     def split_data(
         self, 
         df: pd.DataFrame,
         train_ratio: Optional[float] = None,
         val_ratio: Optional[float] = None,
         test_ratio: Optional[float] = None,
-        stratify: bool = True
+        stratify: bool = True,
+        random_seed: Optional[int] = None
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Split data into train/validation/test sets.
         
@@ -148,6 +171,7 @@ class DataProcessor:
             val_ratio: Validation set ratio  
             test_ratio: Test set ratio
             stratify: Whether to stratify split by labels
+            random_seed: Override random seed (if None, use class configuration)
             
         Returns:
             Tuple of (train_df, val_df, test_df)
@@ -165,24 +189,33 @@ class DataProcessor:
         if abs(total_ratio - 1.0) > 1e-6:
             raise ValueError(f"Ratios must sum to 1.0, got {total_ratio}")
         
+        # Determine random seed to use
+        if random_seed is not None:
+            seed = random_seed
+            logger.info(f"Using provided seed: {seed}")
+        else:
+            seed = self._get_random_seed()
+        
         # First split: separate test set
         train_val_df, test_df = train_test_split(
             df,
             test_size=test_ratio,
-            random_state=self.random_seed,
+            random_state=seed,
             stratify=df['label'] if stratify else None
         )
         
         # Second split: separate train and validation
+        # Use a different seed for the second split to ensure independence
+        second_seed = seed + 1 if seed < 2147483646 else seed - 1
         val_size_adjusted = val_ratio / (train_ratio + val_ratio)
         train_df, val_df = train_test_split(
             train_val_df,
             test_size=val_size_adjusted,
-            random_state=self.random_seed,
+            random_state=second_seed,
             stratify=train_val_df['label'] if stratify else None
         )
         
-        logger.info(f"Data split completed:")
+        logger.info(f"Data split completed (seed: {seed}):")
         logger.info(f"  Train: {len(train_df)} samples ({len(train_df)/len(df)*100:.1f}%)")
         logger.info(f"  Validation: {len(val_df)} samples ({len(val_df)/len(df)*100:.1f}%)")
         logger.info(f"  Test: {len(test_df)} samples ({len(test_df)/len(df)*100:.1f}%)")
@@ -235,7 +268,8 @@ class DataProcessor:
         input_file: str,
         output_train: Optional[str] = None,
         output_val: Optional[str] = None,
-        output_test: Optional[str] = None
+        output_test: Optional[str] = None,
+        random_seed: Optional[int] = None
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Complete data processing pipeline.
         
@@ -244,6 +278,7 @@ class DataProcessor:
             output_train: Output training file path
             output_val: Output validation file path
             output_test: Output test file path
+            random_seed: Override random seed for this split
             
         Returns:
             Tuple of (train_df, val_df, test_df)
@@ -258,8 +293,8 @@ class DataProcessor:
         stats = self.analyze_data(df)
         logger.info(f"Data statistics: {stats}")
         
-        # Split data
-        train_df, val_df, test_df = self.split_data(df)
+        # Split data with optional random seed
+        train_df, val_df, test_df = self.split_data(df, random_seed=random_seed)
         
         # Save splits
         self.save_splits(

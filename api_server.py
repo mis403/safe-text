@@ -7,6 +7,7 @@ Safe-Text API服务器
 from flask import Flask, request, jsonify
 import sys
 import os
+import argparse
 from pathlib import Path
 import logging
 from typing import Optional, Dict, Any
@@ -19,6 +20,7 @@ from src.models.trainer import SensitiveWordTrainer
 from src.data import DataProcessor
 from src.utils.model_finder import find_latest_model, find_all_models, get_model_info
 from config.settings import config
+from config.simple_config import load_training_config
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +30,60 @@ app = Flask(__name__)
 
 # 全局推理引擎
 inference_engine: Optional[SensitiveWordInference] = None
+
+# 加载安全配置
+try:
+    training_config = load_training_config()
+    security_config = training_config.get('security', {})
+    API_TOKEN = security_config.get('api_token', 'safe-text-api-2025-default')
+    TOKEN_REQUIRED = security_config.get('token_required', True)
+except Exception as e:
+    logger.warning(f"无法加载安全配置，使用默认值: {e}")
+    API_TOKEN = 'safe-text-api-2025-default'
+    TOKEN_REQUIRED = True
+
+# 无需认证的端点列表
+EXEMPT_ENDPOINTS = ['/auth/info']
+
+@app.before_request
+def authenticate_request():
+    """全局认证中间件 - 在每个请求前执行"""
+    # 如果认证被禁用，直接通过
+    if not TOKEN_REQUIRED:
+        return None
+    
+    # 检查是否是免认证端点
+    if request.endpoint and any(request.path.startswith(exempt) for exempt in EXEMPT_ENDPOINTS):
+        return None
+    
+    # 获取Authorization头
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header:
+        return jsonify({
+            "error": "缺少Authorization头",
+            "message": "请在请求头中包含: Authorization: Bearer <token>"
+        }), 401
+    
+    # 检查Bearer格式
+    if not auth_header.startswith('Bearer '):
+        return jsonify({
+            "error": "无效的Authorization格式",
+            "message": "格式应为: Authorization: Bearer <token>"
+        }), 401
+    
+    # 提取token
+    token = auth_header[7:]  # 移除 "Bearer " 前缀
+    
+    # 验证token
+    if token != API_TOKEN:
+        return jsonify({
+            "error": "无效的访问令牌",
+            "message": "请提供有效的API Token"
+        }), 403
+    
+    # 认证成功，继续处理请求
+    return None
 
 # 模型查找功能已移至 src.utils.model_finder 模块
 
@@ -302,8 +358,38 @@ def model_status():
     
     return jsonify(status)
 
+@app.route('/auth/info', methods=['GET'])
+def auth_info():
+    """获取认证信息（无需Token）"""
+    return jsonify({
+        "token_required": TOKEN_REQUIRED,
+        "auth_method": "Bearer Token",
+        "header_format": "Authorization: Bearer <token>",
+        "message": "请联系管理员获取API Token" if TOKEN_REQUIRED else "当前无需认证"
+    })
+
 if __name__ == '__main__':
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='Safe-Text API服务器')
+    parser.add_argument('--host', default='0.0.0.0', help='服务器主机地址 (默认: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=9900, help='服务器端口号 (默认: 9900)')
+    parser.add_argument('--debug', action='store_true', help='启用调试模式')
+    args = parser.parse_args()
+    
+    # 使用命令行参数
+    host = args.host
+    port = args.port
+    debug = args.debug
+    
     print("🚀 启动敏感词检测API服务器...")
+    
+    # 显示安全配置
+    if TOKEN_REQUIRED:
+        print("🔐 API安全认证已启用")
+        print(f"🔑 API Token: {API_TOKEN}")
+        print("📋 请求头格式: Authorization: Bearer <token>")
+    else:
+        print("⚠️  API安全认证已禁用")
     
     # 尝试初始化推理引擎
     if init_inference_engine():
@@ -311,8 +397,9 @@ if __name__ == '__main__':
     else:
         print("⚠️  推理引擎未加载，请先训练模型")
     
-    print("📡 API服务器运行在: http://localhost:8080")
+    print(f"📡 API服务器运行在: http://{host}:{port}")
     print("\n可用接口:")
+    print("  GET  /auth/info       - 认证信息 (无需Token)")
     print("  GET  /health          - 健康检查")
     print("  GET  /model/status    - 模型状态")
     print("  POST /predict         - 单文本预测")
@@ -321,7 +408,7 @@ if __name__ == '__main__':
     
     # 启动服务
     app.run(
-        host='0.0.0.0',
-        port=8080,
-        debug=False
+        host=host,
+        port=port,
+        debug=debug
     )

@@ -11,17 +11,17 @@ model:
 training:
   # 基础参数
   batch_size: 8
-  learning_rate: 0.00002          # 稍微降低学习率，寻求更稳定的收敛 (2e-5)
+  learning_rate: 0.00001          # 稍微降低学习率，寻求更稳定的收敛 (2e-5)
   num_epochs: 3
   
   # 防过拟合参数 
-  weight_decay: 0.1
-  max_grad_norm: 1.0
-  label_smoothing_factor: 0.1
+  weight_decay: 0.15  #L2正则化参数
+  max_grad_norm: 1.0  #梯度裁剪参数
+  label_smoothing_factor: 0.15  #标签平滑参数
   
   # 早停配置 - 放宽条件
-  early_stopping_patience: 3       # 有效训练patience
-  early_stopping_threshold: 0.001    # 有效进步阈值，0.001
+  early_stopping_patience: 2       # 有效训练patience
+  early_stopping_threshold: 0.003    # 有效进步阈值
   
   # 学习率调度
   warmup_steps: 100
@@ -34,9 +34,9 @@ training:
   
   # 评估和保存 - 降低频率
   eval_strategy: "steps"
-  eval_steps: 120                 
+  eval_steps: 200                 
   save_strategy: "steps"
-  save_steps: 120                  
+  save_steps: 200          #必须是setps的整数倍        
   logging_steps: 50                # 日志可以频繁一些，方便观察
   
   # 模型选择 (保持不变)
@@ -59,6 +59,12 @@ data:
   test_ratio: 0.15                 # 测试集比例 
   random_seed: 42                  # 数据分割随机种子
 
+# API安全配置
+security:
+  # Bearer Token 认证
+  api_token: "safe-text-api-2025-9d8f7e6c5b4a3210"  # API访问令牌
+  token_required: true                               # 是否启用Token验证
+  
 # 快速配置预设 (注释掉不使用的)
 presets:
  
